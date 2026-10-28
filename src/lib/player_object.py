@@ -144,6 +144,8 @@ class PlayerObject(GObject.GObject):
         self.seek_after_sink_reload: int | None = None
         self.seeked_to_end = False
         self.last_stream_reload: int = 0
+        # the track being loaded again by _reload_track
+        self.reloading_track: Track | None = None
         # when the uri of the playing track was loaded, its stream urls expire after
         # about an hour (wall-clock time, to count time spent suspended)
         self.stream_loaded_at: float = 0
@@ -294,9 +296,7 @@ class PlayerObject(GObject.GObject):
 
     def _reload_track(self) -> None:
         """Load the playing track again and continue from the same position"""
-        duration = self.query_duration()
-        if duration:
-            self.seek_after_sink_reload = self.query_position() / duration
+        self.reloading_track = self.playing_track
         self.play_track(self.playing_track)
 
     def _stream_expires_soon(self) -> bool:
@@ -656,7 +656,14 @@ class PlayerObject(GObject.GObject):
 
     def _play_track_url(self, track, music_url, gapless=False):
         """Set up and play track from URL."""
+        if not gapless and track is self.reloading_track:
+            # What was already downloaded keeps playing while the track loads again,
+            # so continue from where it is now, not from where the reload started
+            duration = self.query_duration()
+            if duration:
+                self.seek_after_sink_reload = self.query_position() / duration
         if not gapless:
+            self.reloading_track = None
             self.use_about_to_finish = False
             self.pipeline.set_state(Gst.State.NULL)
             self.playbin.set_property("volume", self.playbin.get_property("volume"))
